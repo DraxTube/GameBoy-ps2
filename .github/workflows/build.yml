@@ -1,0 +1,77 @@
+name: Build PS2 Game Boy Emulator
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    container:
+      image: ps2dev/ps2dev:latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        apk add --no-cache make git bash || \
+        apt-get update && apt-get install -y make git bash || \
+        true
+
+    - name: Show PS2DEV environment
+      run: |
+        echo "PS2DEV: $PS2DEV"
+        echo "PS2SDK: $PS2SDK"
+        ls $PS2DEV || true
+        ls $PS2SDK || true
+
+    - name: Install gsKit
+      run: |
+        if [ ! -d "$PS2DEV/gsKit" ]; then
+          cd /tmp
+          git clone --depth=1 https://github.com/ps2dev/gsKit.git
+          cd gsKit
+          make install
+        else
+          echo "gsKit already available"
+        fi
+      env:
+        PS2DEV: ${{ env.PS2DEV }}
+        PS2SDK: ${{ env.PS2SDK }}
+
+    - name: Build
+      run: |
+        export PATH=$PS2DEV/bin:$PS2DEV/ee/bin:$PS2DEV/iop/bin:$PS2DEV/dvp/bin:$PS2SDK/bin:$PATH
+        make
+      env:
+        PS2DEV: ${{ env.PS2DEV }}
+        PS2SDK: ${{ env.PS2SDK }}
+
+    - name: Upload ELF artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ps2gb-elf
+        path: |
+          ps2gb.elf
+          ps2gb_packed.elf
+        if-no-files-found: warn
+
+    - name: Create Release
+      if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: build-${{ github.run_number }}
+        name: Build ${{ github.run_number }}
+        draft: false
+        prerelease: true
+        files: |
+          ps2gb.elf
+          ps2gb_packed.elf
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
